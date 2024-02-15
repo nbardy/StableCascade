@@ -9,13 +9,18 @@ import os
 import re
 from dataclasses import dataclass
 
+import sys
+sys.path.append('.')  # Add current directory to path
+
+
+
 from gdf import GDF, EpsilonTarget, CosineSchedule
 from gdf import VPScaler, CosineTNoiseCond, DDPMSampler, P2LossWeight, AdaptiveLossWeight
 from torchtools.transforms import SmartCrop
 
 from modules.effnet import EfficientNetEncoder
 from modules.stage_c import StageC
-from modules.stage_c import ResBlock, AttnBlock, TimestepBlock, FeedForwardBlock
+
 from modules.previewer import Previewer
 from modules.lora import apply_lora, apply_retoken, LoRA, ReToken
 
@@ -26,8 +31,7 @@ from core.utils import EXPECTED, EXPECTED_TRAIN, load_or_fail
 
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy
 from torch.distributed.fsdp.wrap import ModuleWrapPolicy
-from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
-import functools
+
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
 from contextlib import contextmanager
@@ -320,9 +324,24 @@ class WurstCore(TrainingCore, DataCore, WarpCore):
 
 if __name__ == '__main__':
     print("Launching Script")
+    slurm_id = os.environ.get("SLURM_LOCALID")
+
+    if slurm_id is not None:
+        device = torch.device(f"cuda:{int(slurm_id)}") if torch.cuda.is_available() else torch.device("cpu")
+        print(f"Using SLURM device: {device}")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("Using CUDA device")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("Using MPS device (Mac)")
+    else:
+        device = torch.device("cpu")
+        print("Using CPU device")
+
     warpcore = WurstCore(
         config_file_path=sys.argv[1] if len(sys.argv) > 1 else None,
-        device=torch.device(int(os.environ.get("SLURM_LOCALID")))
+        device=device
     )
     warpcore.fsdp_defaults['sharding_strategy'] = ShardingStrategy.NO_SHARD
 
